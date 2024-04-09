@@ -6,14 +6,56 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+library(edgeR)
+library(limma)
 # Put your own directory that you have you counts.txt file downloaded in 
 setwd("/Users/alexvidal/Desktop/Spring2024Classes/CMDA_Capstone/R_Code/")
 ```
 
 ## Data Cleaning
 ```{r}
-countData <- read.table(header = TRUE, sep = "", file = "counts.txt")
-countData
+countData <-read.table(header = TRUE, sep = "", file = "counts.txt")
+colnames(countData) <- c("Geneid","Chr", "Start" ,"End", "Strand","Length","0hr1","0hr2","0hr3","Avr1","Avr2","Avr3", "EV1", "EV2","EV3")
+sampleInfo <- read.table(header = TRUE, sep = "", file = "counts.txt.summary")
+countData$condition <- substr(rownames(sampleInfo), 1,nchar(rownames(sampleInfo))-1)
+dge <- DGEList(counts = countData)
+dge$counts
+cpm(dge$counts)
+pseudoCounts <- log2(dge$counts+1)
+par(mfrow=c(3,3))
+hist(pseudoCounts[, "0hr1"])
+hist(pseudoCounts[, "0hr2"])
+hist(pseudoCounts[, "0hr3"])
+hist(pseudoCounts[, "Avr1"])
+hist(pseudoCounts[, "Avr2"])
+hist(pseudoCounts[, "Avr3"])
+hist(pseudoCounts[, "EV1"])
+hist(pseudoCounts[, "EV2"])
+hist(pseudoCounts[, "EV3"])
+boxplot(pseudoCounts, col="gray")
+```
+
+```{r}
+par(mfrow=c(1,2))
+## treated2 vs treated3
+# A values
+avalues <- (pseudoCounts[,2] + pseudoCounts[,3])/2
+# M values
+mvalues <- (pseudoCounts[,2] - pseudoCounts[,3]- pseudoCounts[,4])
+plot(avalues, mvalues, xlab="A", ylab="M", pch=19, main="0hr")
+abline(h=0, col="red")
+## untreated3 vs untreated4
+# A values
+avalues <- (pseudoCounts[,5] + pseudoCounts[,6]+ pseudoCounts[,7] )/3
+# M values
+mvalues <- (pseudoCounts[,5]- pseudoCounts[,6]- pseudoCounts[,7] )
+plot(avalues, mvalues, xlab="A", ylab="M", pch=19, main="Avr")
+abline(h=0, col="red")
+
+avalues <- (pseudoCounts[,8] + pseudoCounts[,9]+ pseudoCounts[,10] )/3
+# M values
+mvalues <- (pseudoCounts[,8]- pseudoCounts[,9]- pseudoCounts[,10] )
+plot(avalues, mvalues, xlab="A", ylab="M", pch=19, main="EV")
+abline(h=0, col="red")
 ```
 
