@@ -17,8 +17,10 @@ setwd("/Users/alexvidal/Desktop/Spring2024Classes/CMDA_Capstone/R_Code/")
 countData <-read.table(header = TRUE, sep = "", file = "counts.txt")
 colnames(countData) <- c("Geneid","Chr", "Start" ,"End", "Strand","Length","0hr1","0hr2","0hr3","Avr1","Avr2","Avr3", "EV1", "EV2","EV3")
 sampleInfo <- read.table(header = TRUE, sep = "", file = "counts.txt.summary")
-countData$condition <- substr(rownames(sampleInfo), 1,nchar(rownames(sampleInfo))-1)
-dge <- DGEList(counts = countData)
+#countData$condition <- substr(rownames(sampleInfo), 1,nchar(rownames(sampleInfo))-1)
+groupNames <- c("0hr", "0hr","0hr","AvrRxo1", "AvrRxo1","AvrRxo1","EV","EV","EV")
+
+dge <- DGEList(counts = countData[7:15],group = factor(groupNames))
 dge$counts
 cpm(dge$counts)
 pseudoCounts <- log2(dge$counts+1)
@@ -33,16 +35,23 @@ hist(pseudoCounts[, "EV1"])
 hist(pseudoCounts[, "EV2"])
 hist(pseudoCounts[, "EV3"])
 boxplot(pseudoCounts, col="gray")
+
+
+
+
+dge$counts
+keep<-rowSums(cpm(dge$counts)>100) >= 2
+dim(dge$counts[keep,])
 ```
 
 ```{r}
 par(mfrow=c(1,2))
 ## treated2 vs treated3
 # A values
-avalues <- (pseudoCounts[,2] + pseudoCounts[,3])/2
+avalues <- (pseudoCounts[,2] + pseudoCounts[,5])/2
 # M values
-mvalues <- (pseudoCounts[,2] - pseudoCounts[,3]- pseudoCounts[,4])
-plot(avalues, mvalues, xlab="A", ylab="M", pch=19, main="0hr")
+mvalues <- (pseudoCounts[,2] - pseudoCounts[,5)
+plot(avalues, mvalues, xlab="A", ylab="M", pch=19, main="0hr1 vs. Avr1")
 abline(h=0, col="red")
 ## untreated3 vs untreated4
 # A values
@@ -57,5 +66,121 @@ avalues <- (pseudoCounts[,8] + pseudoCounts[,9]+ pseudoCounts[,10] )/3
 mvalues <- (pseudoCounts[,8]- pseudoCounts[,9]- pseudoCounts[,10] )
 plot(avalues, mvalues, xlab="A", ylab="M", pch=19, main="EV")
 abline(h=0, col="red")
+```
+### Real data analysis
+
+```{r}
+countData <-read.table(header = TRUE, sep = "", file = "counts.txt")
+colnames(countData) <- c("Geneid","Chr", "Start" ,"End", "Strand","Length","0hr1","0hr2","0hr3","Avr1","Avr2","Avr3", "EV1", "EV2","EV3")
+groupNames <- c("0hr", "0hr","0hr","AvrRxo1", "AvrRxo1","AvrRxo1","EV","EV","EV")
+dge <- DGEList(counts = countData[7:15],group = factor(groupNames))
+dge.full <- dge
+apply(dge$counts, 2, sum) 
+keep<-rowSums(cpm(dge$counts)>100) >= 2
+dge$counts <- dge$counts[keep, ]
+
+
+dge$samples$lib.size <- colSums(dge$counts)
+
+```
+
+### Visualization
+```{r}
+dge <- calcNormFactors(dge)
+plotMDS(dge, method = "bcv", col=as.numeric(dge$samples$group), top = 1000)
+legend("bottomright", as.character(unique(dge$samples$group)), col=1:3, pch=20)
+
+```
+
+### Estimating Dispersion
+```{r}
+dgeDispersion <- estimateCommonDisp(dge, verbose=T)
+
+dgeDispersion <- estimateTagwiseDisp(dgeDispersion)
+names(dgeDispersion$span)
+
+plotBCV(dgeDispersion)
+```
+
+## GLM Estimates of Dispersion
+```{r}
+design.mat <- model.matrix(~ 0 + dge$samples$group)
+colnames(design.mat) <- levels(dge$samples$group)
+d2 <- estimateGLMCommonDisp(dge,design.mat)
+d2 <- estimateGLMTrendedDisp(d2,design.mat, method="auto")
+# You can change method to "auto", "bin.spline", "power", "spline", "bin.loess".
+# The default is "auto" which chooses "bin.spline" when > 200 tags and "power" otherwise.
+d2 <- estimateGLMTagwiseDisp(d2,design.mat)
+plotBCV(d2)
+```
+### Comparing DESeq vs edgeR 
+under construction
+```{r}
+## Install DESeq by doing BiocManager::install("DESeq")
+library(DESeq2)
+cds <- DESeqDataSetFromMatrix( countData = countData)
+cds <- estimateSizeFactors( cds )
+sizeFactors( cds )
+```
+
+
+## DGE
+```{r}
+et0vsAvr <- exactTest(dgeDispersion, pair=c("0hr","AvrRxo1")) # compare groups 1 and 2
+et0hrvsEV <- exactTest(dgeDispersion, pair=c("0hr","EV")) # compare groups 1 and 3
+etEVvsAvr <- exactTest(dgeDispersion, pair=c("EV","AvrRxo1")) # compare groups 2 and 3
+topTags(etEVvsAvr, n=10)
+topTags(et0hrvsEV, n=10)
+topTags(et0vsAvr, n=10)
+
+# 1 means upregulated -1 meands downregulated 0 is not significant
+dg0vsAvr <- decideTestsDGE(et0hrvsEV, adjust.method="BH", p.value=0.05)
+dgEVvsAvr <- decideTestsDGE(etEVvsAvr, adjust.method="BH", p.value=0.05)
+dg0vsEV <- decideTestsDGE(et0hrvsEV, adjust.method="BH", p.value=0.05)
+summary(de1)
+
+par(mfrow=c(1,3))
+de1tags0vsAvr <- rownames(dgeDispersion)[as.logical(dg0vsAvr)] 
+plotSmear(et0vsAvr, de.tags=de1tags0vsAvr,xlab = "0 vs Avr")
+abline(h = c(-2, 2), col = "blue")
+de1tagsEVvsAvr <- rownames(dgeDispersion)[as.logical(dgEVvsAvr)] 
+plotSmear(etEVvsAvr, de.tags=de1tagsEVvsAvr,xlab = "EV vs Avr")
+abline(h = c(-2, 2), col = "blue")
+de1tags0vsEV <- rownames(dgeDispersion)[as.logical(dg0vsEV)] 
+plotSmear(et0hrvsEV, de.tags=de1tags0vsEV,xlab = "0 vs EV")
+abline(h = c(-2, 2), col = "blue")
+
+```
+
+
+### GLM Testing for Differential Expression
+```{r}
+design.mat
+
+fit <- glmFit(d2, design.mat)
+# compare (group 1 - group 2) to 0:
+# this is equivalent to comparing group 1 to group 2
+lrt0vsAvr <- glmLRT(fit, contrast=c(1,-1,0))
+lrt0vsEV <- glmLRT(fit, contrast=c(1,0,-1))
+lrtEVvsAvr <- glmLRT(fit, contrast=c(0,1,-1))
+topTags(lrt0vsAvr, n=10)
+topTags(lrt0vsEV, n=10)
+topTags(lrtEVvsAvr, n=10)
+
+par(mfrow=c(1,3))
+de0vsAvr <- decideTestsDGE(lrt0vsAvr, adjust.method="BH", p.value = 0.05)
+de2tags0vsAvr <- rownames(d2)[as.logical(de0vsAvr)]
+plotSmear(lrt0vsAvr, de.tags=de2tags0vsAvr, xlab = "0 vs Avr")
+abline(h = c(-2, 2), col = "blue")
+
+de0vsEV <- decideTestsDGE(lrt0vsEV, adjust.method="BH", p.value = 0.05)
+de2tags0vsEV <- rownames(d2)[as.logical(de0vsEV)]
+plotSmear(lrt0vsEV, de.tags=de2tags0vsEV, xlab = "0 vs EV")
+abline(h = c(-2, 2), col = "blue")
+
+deEVvsAvr <- decideTestsDGE(lrtEVvsAvr, adjust.method="BH", p.value = 0.05)
+de2tagsEVvsAvr <- rownames(d2)[as.logical(deEVvsAvr)]
+plotSmear(lrtEVvsAvr, de.tags=de2tagsEVvsAvr, xlab = "EV vs Avr")
+abline(h = c(-2, 2), col = "blue")
 ```
 
