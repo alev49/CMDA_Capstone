@@ -21,8 +21,6 @@ sampleInfo <- read.table(header = TRUE, sep = "", file = "counts.txt.summary")
 groupNames <- c("0hr", "0hr","0hr","AvrRxo1", "AvrRxo1","AvrRxo1","EV","EV","EV")
 
 dge <- DGEList(counts = countData[7:15],group = factor(groupNames))
-dge$counts
-cpm(dge$counts)
 pseudoCounts <- log2(dge$counts+1)
 par(mfrow=c(3,3))
 hist(pseudoCounts[, "0hr1"])
@@ -39,34 +37,10 @@ boxplot(pseudoCounts, col="gray")
 
 
 
-dge$counts
 keep<-rowSums(cpm(dge$counts)>100) >= 2
 dim(dge$counts[keep,])
 ```
 
-```{r}
-par(mfrow=c(1,2))
-## treated2 vs treated3
-# A values
-avalues <- (pseudoCounts[,2] + pseudoCounts[,5])/2
-# M values
-mvalues <- (pseudoCounts[,2] - pseudoCounts[,5)
-plot(avalues, mvalues, xlab="A", ylab="M", pch=19, main="0hr1 vs. Avr1")
-abline(h=0, col="red")
-## untreated3 vs untreated4
-# A values
-avalues <- (pseudoCounts[,5] + pseudoCounts[,6]+ pseudoCounts[,7] )/3
-# M values
-mvalues <- (pseudoCounts[,5]- pseudoCounts[,6]- pseudoCounts[,7] )
-plot(avalues, mvalues, xlab="A", ylab="M", pch=19, main="Avr")
-abline(h=0, col="red")
-
-avalues <- (pseudoCounts[,8] + pseudoCounts[,9]+ pseudoCounts[,10] )/3
-# M values
-mvalues <- (pseudoCounts[,8]- pseudoCounts[,9]- pseudoCounts[,10] )
-plot(avalues, mvalues, xlab="A", ylab="M", pch=19, main="EV")
-abline(h=0, col="red")
-```
 ### Real data analysis
 
 ```{r}
@@ -86,6 +60,7 @@ dge$samples$lib.size <- colSums(dge$counts)
 
 ### Visualization
 ```{r}
+# Why is Avr1 so far from Avr2 and 3
 dge <- calcNormFactors(dge)
 plotMDS(dge, method = "bcv", col=as.numeric(dge$samples$group), top = 1000)
 legend("bottomright", as.character(unique(dge$samples$group)), col=1:3, pch=20)
@@ -107,6 +82,8 @@ plotBCV(dgeDispersion)
 design.mat <- model.matrix(~ 0 + dge$samples$group)
 colnames(design.mat) <- levels(dge$samples$group)
 d2 <- estimateGLMCommonDisp(dge,design.mat)
+
+#what are the functions mean/used for
 d2 <- estimateGLMTrendedDisp(d2,design.mat, method="auto")
 # You can change method to "auto", "bin.spline", "power", "spline", "bin.loess".
 # The default is "auto" which chooses "bin.spline" when > 200 tags and "power" otherwise.
@@ -117,10 +94,10 @@ plotBCV(d2)
 under construction
 ```{r}
 ## Install DESeq by doing BiocManager::install("DESeq")
-library(DESeq2)
-cds <- DESeqDataSetFromMatrix( countData = countData)
-cds <- estimateSizeFactors( cds )
-sizeFactors( cds )
+# library(DESeq2)
+# cds <- DESeqDataSetFromMatrix( countData = countData)
+# cds <- estimateSizeFactors( cds )
+# sizeFactors( cds )
 ```
 
 
@@ -133,13 +110,16 @@ topTags(etEVvsAvr, n=10)
 topTags(et0hrvsEV, n=10)
 topTags(et0vsAvr, n=10)
 
+pval <- .01
+
 # 1 means upregulated -1 meands downregulated 0 is not significant
-dg0vsAvr <- decideTestsDGE(et0hrvsEV, adjust.method="BH", p.value=0.05)
-dgEVvsAvr <- decideTestsDGE(etEVvsAvr, adjust.method="BH", p.value=0.05)
-dg0vsEV <- decideTestsDGE(et0hrvsEV, adjust.method="BH", p.value=0.05)
-summary(de1)
+dg0vsAvr <- decideTestsDGE(et0hrvsEV, adjust.method="BH", p.value=pval)
+dgEVvsAvr <- decideTestsDGE(etEVvsAvr, adjust.method="BH", p.value=pval)
+dg0vsEV <- decideTestsDGE(et0hrvsEV, adjust.method="BH", p.value=pval)
+
 
 par(mfrow=c(1,3))
+# WHy is red dots withi blue in 0 vs Avr
 de1tags0vsAvr <- rownames(dgeDispersion)[as.logical(dg0vsAvr)] 
 plotSmear(et0vsAvr, de.tags=de1tags0vsAvr,xlab = "0 vs Avr")
 abline(h = c(-2, 2), col = "blue")
@@ -155,7 +135,6 @@ abline(h = c(-2, 2), col = "blue")
 
 ### GLM Testing for Differential Expression
 ```{r}
-design.mat
 
 fit <- glmFit(d2, design.mat)
 # compare (group 1 - group 2) to 0:
@@ -167,18 +146,22 @@ topTags(lrt0vsAvr, n=10)
 topTags(lrt0vsEV, n=10)
 topTags(lrtEVvsAvr, n=10)
 
+
+
+# How would you know which gene is over or underexpresed#
+pval <- .05
 par(mfrow=c(1,3))
-de0vsAvr <- decideTestsDGE(lrt0vsAvr, adjust.method="BH", p.value = 0.05)
+de0vsAvr <- decideTestsDGE(lrt0vsAvr, adjust.method="BH", p.value = pval)
 de2tags0vsAvr <- rownames(d2)[as.logical(de0vsAvr)]
 plotSmear(lrt0vsAvr, de.tags=de2tags0vsAvr, xlab = "0 vs Avr")
 abline(h = c(-2, 2), col = "blue")
 
-de0vsEV <- decideTestsDGE(lrt0vsEV, adjust.method="BH", p.value = 0.05)
+de0vsEV <- decideTestsDGE(lrt0vsEV, adjust.method="BH", p.value = pval)
 de2tags0vsEV <- rownames(d2)[as.logical(de0vsEV)]
 plotSmear(lrt0vsEV, de.tags=de2tags0vsEV, xlab = "0 vs EV")
 abline(h = c(-2, 2), col = "blue")
 
-deEVvsAvr <- decideTestsDGE(lrtEVvsAvr, adjust.method="BH", p.value = 0.05)
+deEVvsAvr <- decideTestsDGE(lrtEVvsAvr, adjust.method="BH", p.value = pval)
 de2tagsEVvsAvr <- rownames(d2)[as.logical(deEVvsAvr)]
 plotSmear(lrtEVvsAvr, de.tags=de2tagsEVvsAvr, xlab = "EV vs Avr")
 abline(h = c(-2, 2), col = "blue")

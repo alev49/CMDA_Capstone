@@ -1,0 +1,19 @@
+---
+title: "Differential_Gene_Analysis"
+author: "Skinny Genes"
+date: "2024-04-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Put your own directory that you have you counts.txt file downloaded in 
+setwd("/Users/alexvidal/Desktop/Spring2024Classes/CMDA_Capstone/R_Code/")
+```
+
+## Data Cleaning
+```{r}
+countData <- read.table(header = TRUE, sep = "", file = "counts.txt")
+countData
+```
+
