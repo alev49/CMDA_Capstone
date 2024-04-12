@@ -1,0 +1,184 @@
+---
+title: "Volcano_Plots"
+author: "Ian Sekelsky"
+date: "2024-04-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, include=FALSE}
+library(edgeR)
+library(limma)
+library(ggplot2)
+library(tidyverse) 
+library(RColorBrewer)
+library(ggrepel)
+# Put your own directory that you have you counts.txt file downloaded in 
+setwd("/Users/ian/Desktop/GItR_Capstone/CMDA_Capstone")
+```
+
+## Data Cleaning
+```{r}
+countData <-read.table(header = TRUE, sep = "", file = "counts.txt")
+colnames(countData) <- c("Geneid","Chr", "Start" ,"End", "Strand","Length","0hr1","0hr2","0hr3","Avr1","Avr2","Avr3", "EV1", "EV2","EV3")
+sampleInfo <- read.table(header = TRUE, sep = "", file = "counts.txt.summary")
+#countData$condition <- substr(rownames(sampleInfo), 1,nchar(rownames(sampleInfo))-1)
+groupNames <- c("0hr", "0hr","0hr","AvrRxo1", "AvrRxo1","AvrRxo1","EV","EV","EV")
+
+dge <- DGEList(counts = countData[7:15],group = factor(groupNames))
+pseudoCounts <- log2(dge$counts+1)
+
+
+
+
+keep<-rowSums(cpm(dge$counts)>100) >= 2
+```
+
+
+### Real data analysis
+
+```{r}
+countData <-read.table(header = TRUE, sep = "", file = "counts.txt")
+colnames(countData) <- c("Geneid","Chr", "Start" ,"End", "Strand","Length","0hr1","0hr2","0hr3","Avr1","Avr2","Avr3", "EV1", "EV2","EV3")
+groupNames <- c("0hr", "0hr","0hr","AvrRxo1", "AvrRxo1","AvrRxo1","EV","EV","EV")
+dge <- DGEList(counts = countData[7:15],group = factor(groupNames))
+dge.full <- dge
+apply(dge$counts, 2, sum) 
+keep<-rowSums(cpm(dge$counts)>100) >= 2
+dge$counts <- dge$counts[keep, ]
+
+
+dge$samples$lib.size <- colSums(dge$counts)
+
+```
+
+```{r}
+dgeDispersion <- estimateCommonDisp(dge, verbose=T)
+
+dgeDispersion <- estimateTagwiseDisp(dgeDispersion)
+names(dgeDispersion$span)
+
+et0vsAvr <- exactTest(dgeDispersion, pair=c("0hr","AvrRxo1")) # compare groups 1 and 2
+et0hrvsEV <- exactTest(dgeDispersion, pair=c("0hr","EV")) # compare groups 1 and 3
+etEVvsAvr <- exactTest(dgeDispersion, pair=c("EV","AvrRxo1")) # compare groups 2 and 3
+topTags(etEVvsAvr, n=10)
+topTags(et0hrvsEV, n=10)
+topTags(et0vsAvr, n=10)
+
+
+```
+
+## Volcano Plot for Hour Zero vs the Empty Vector
+```{r}
+zev = as.data.frame(et0hrvsEV$table)
+
+zev$padj = -log10(zev$PValue)
+
+
+top0vsEV = data.frame(topTags(et0hrvsEV, n=20))
+
+
+zev$diffexpressed <- "NO"
+  # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP"<br /><br /><br />
+zev$diffexpressed[zev$logFC > 0.6 & zev$PValue < 0.05] <- "UP"
+  # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"<br /><br /><br />
+zev$diffexpressed[zev$logFC < -0.6 & zev$PValue < 0.05] <- "DOWN"
+  
+
+zev$index <- rownames(zev)
+zev$delabel <- ifelse(zev$index %in% head(zev[order(zev$PValue), "index"], 20), zev$index, NA) 
+
+p1 = ggplot(data = zev, aes(x = logFC, y = -log10(PValue), col = diffexpressed, label = delabel)) +
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  geom_point(size = 1) +
+  scale_color_manual(values = c("blue", "grey", "red"), 
+                     labels = c("Downregulated", "Not significant", "Upregulated")) +
+  geom_text_repel(max.overlaps = Inf) + ggtitle('Hour 0 compared to Empty Vector') 
+
+
+```
+
+## Volcano Plot for Hour Zero vs the AVR
+```{r}
+zavr = as.data.frame(et0vsAvr$table)
+
+zavr$padj = -log10(zavr$PValue)
+
+
+top0vsEV = data.frame(topTags(et0hrvsEV, n=20))
+
+
+zavr$diffexpressed <- "NO"
+  # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP"<br /><br /><br />
+zavr$diffexpressed[zavr$logFC > 0.6 & zavr$PValue < 0.05] <- "UP"
+  # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"<br /><br /><br />
+zavr$diffexpressed[zavr$logFC < -0.6 & zavr$PValue < 0.05] <- "DOWN"
+  
+
+zavr$index <- rownames(zavr)
+zavr$delabel <- ifelse(zavr$index %in% head(zavr[order(zavr$PValue), "index"], 20), zavr$index, NA) 
+
+p2 = ggplot(data = zavr, aes(x = logFC, y = -log10(PValue), col = diffexpressed, label = delabel)) +
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  geom_point(size = 1) +
+  scale_color_manual(values = c("blue", "grey", "red"), 
+                     labels = c("Downregulated", "Not significant", "Upregulated")) +
+  geom_text_repel(max.overlaps = Inf) + ggtitle('Hour 0 vs. AvrRxo1 Expression') 
+
+
+```
+
+## Volcano Plot for AvrRxo1 vs the Empty Vector
+```{r}
+evavr = as.data.frame(etEVvsAvr$table)
+
+evavr$padj = -log10(evavr$PValue)
+
+
+top0vsEV = data.frame(topTags(etEVvsAvr, n=20))
+
+
+evavr$diffexpressed <- "NO"
+  # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP"<br /><br /><br />
+evavr$diffexpressed[evavr$logFC > 0.6 & evavr$PValue < 0.05] <- "UP"
+  # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"<br /><br /><br />
+evavr$diffexpressed[evavr$logFC < -0.6 & evavr$PValue < 0.05] <- "DOWN"
+  
+
+evavr$index <- rownames(evavr)
+evavr$delabel <- ifelse(evavr$index %in% head(evavr[order(evavr$PValue), "index"], 20), evavr$index, NA) 
+
+p3 = ggplot(data = evavr, aes(x = logFC, y = -log10(PValue), col = diffexpressed, label = delabel)) +
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  geom_point(size = 1) +
+  scale_color_manual(values = c("blue", "grey", "red"), 
+                     labels = c("Downregulated", "Not significant", "Upregulated")) +
+  geom_text_repel(max.overlaps = Inf) + ggtitle('AvrRxo1 vs. Empty vector Expression') 
+
+
+```
+```{r}
+par(mfrow=c(1,3))
+p1
+p2
+p3
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
