@@ -1,0 +1,213 @@
+---
+title: "Differential_Gene_Analysis"
+author: "Skinny Genes"
+date: "2024-04-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(edgeR)
+library(limma)
+library(ggplot2)
+library(tidyr)
+library(reshape2)
+# Put your own directory that you have you counts.txt file downloaded in 
+#setwd("/Users/alexvidal/Desktop/Spring2024Classes/CMDA_Capstone/R_Code/")
+setwd("/Users/yelebedesta/CMDA_capstone")
+```
+
+## Data Cleaning
+```{r}
+countData <-read.table(header = TRUE, sep = "", file = "counts.txt")
+colnames(countData) <- c("Geneid","Chr", "Start" ,"End", "Strand","Length","0hr1","0hr2","0hr3","Avr1","Avr2","Avr3", "EV1", "EV2","EV3")
+sampleInfo <- read.table(header = TRUE, sep = "", file = "counts.txt.summary")
+#countData$condition <- substr(rownames(sampleInfo), 1,nchar(rownames(sampleInfo))-1)
+groupNames <- c("0hr", "0hr","0hr","AvrRxo1", "AvrRxo1","AvrRxo1","EV","EV","EV")
+
+dge <- DGEList(counts = countData[7:15],group = factor(groupNames))
+dim(dge) #84570     9
+pseudoCounts <- log2(dge$counts+1)
+par(mfrow=c(3,3))
+hist(pseudoCounts[, "0hr1"])
+hist(pseudoCounts[, "0hr2"])
+hist(pseudoCounts[, "0hr3"])
+hist(pseudoCounts[, "Avr1"])
+hist(pseudoCounts[, "Avr2"])
+hist(pseudoCounts[, "Avr3"])
+hist(pseudoCounts[, "EV1"])
+hist(pseudoCounts[, "EV2"])
+hist(pseudoCounts[, "EV3"])
+boxplot(pseudoCounts, col="gray")
+
+
+
+dge$counts
+#here, we are keeping the genes if it has a count of 100 for at least 2 samples
+keep<-rowSums(cpm(dge$counts)>100) >= 2 
+dim(dge$counts[keep,]) #3098    9
+```
+
+### Real data analysis
+
+```{r}
+countData <-read.table(header = TRUE, sep = "", file = "counts.txt")
+colnames(countData) <- c("Geneid","Chr", "Start" ,"End", "Strand","Length","0hr1","0hr2","0hr3","Avr1","Avr2","Avr3", "EV1", "EV2","EV3")
+groupNames <- c("0hr", "0hr","0hr","AvrRxo1", "AvrRxo1","AvrRxo1","EV","EV","EV")
+dge <- DGEList(counts = countData[7:15],group = factor(groupNames))
+dge.full <- dge #dimension 84570     9
+
+# this is the sample size before the cpm - dimension of dge is 84570 x 9
+before_cpm_cut <- dge.full$samples$lib.size
+apply(dge$counts, 2, sum) 
+keep<-rowSums(cpm(dge$counts)>100) >= 2
+dge$counts <- dge$counts[keep, ]
+dim(dge$counts) # 3098    9
+dge$samples$lib.size <- colSums(dge$counts)
+
+# this is the sample size after the cpm - dimension of dge is 3098 x 9
+after_cpm_cut <- dge$samples$lib.size 
+
+#these are the sample names for our plot
+samples <- c("Control 1", "Control 2", "Control 3", "Infected Gene 1", "Infected Gene 2", "Infected Gene 3", "Empty Vector 1", "Empty Vector 2", "Empty Vector 3") 
+
+cpm_before_and_after<- data.frame(samples,before_cpm_cut, after_cpm_cut)
+colnames(cpm_before_and_after) <- c("Samples","Before the CPM trim","After the CPM trim")
+
+data_long <- melt(cpm_before_and_after, id.vars = "Samples")
+
+options(repr.plot.width = 25, repr.plot.height = 10) 
+
+ggplot(data_long, aes(x = Samples, y = value, fill = variable)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Before and After the CPM trim",
+       x = "Samples",
+       y = "Gene Counts",
+       fill = "Type")+
+  theme_minimal() +  # Change the theme if needed
+  theme(
+    plot.title = element_text(size = 20),  # Change title font size
+    legend.title = element_text(size = 14),  # Change legend title font size
+    legend.text = element_text(size = 12)# Change legend text font size
+  ) 
+```
+
+### Visualization
+```{r}
+# Why is Avr1 so far from Avr2 and 3
+dge <- calcNormFactors(dge)
+plotMDS(dge, method = "bcv", col=as.numeric(dge$samples$group), top = 1000)
+legend("bottomright", as.character(unique(dge$samples$group)), col=1:3, pch=20)
+
+?plotMDS
+
+#Try PCA
+princomp(dge)
+predict(dge,princomp(dge))
+```
+
+
+### Estimating Dispersion
+```{r}
+dgeDispersion <- estimateCommonDisp(dge, verbose=T)
+
+dgeDispersion <- estimateTagwiseDisp(dgeDispersion)
+names(dgeDispersion$span)
+
+plotBCV(dgeDispersion)
+```
+
+## GLM Estimates of Dispersion
+```{r}
+design.mat <- model.matrix(~ 0 + dge$samples$group)
+colnames(design.mat) <- levels(dge$samples$group)
+d2 <- estimateGLMCommonDisp(dge,design.mat)
+
+#what are the functions mean/used for
+d2 <- estimateGLMTrendedDisp(d2,design.mat, method="power")
+# You can change method to "auto", "bin.spline", "power", "spline", "bin.loess".
+# The default is "auto" which chooses "bin.spline" when > 200 tags and "power" otherwise.
+d2 <- estimateGLMTagwiseDisp(d2,design.mat)
+plotBCV(d2)
+```
+### Comparing DESeq vs edgeR 
+under construction
+```{r}
+## Install DESeq by doing BiocManager::install("DESeq")
+# library(DESeq2)
+# cds <- DESeqDataSetFromMatrix( countData = countData)
+# cds <- estimateSizeFactors( cds )
+# sizeFactors( cds )
+```
+
+
+## DGE
+```{r}
+et0vsAvr <- exactTest(dgeDispersion, pair=c("0hr","AvrRxo1")) # compare groups 1 and 2
+et0hrvsEV <- exactTest(dgeDispersion, pair=c("0hr","EV")) # compare groups 1 and 3
+etEVvsAvr <- exactTest(dgeDispersion, pair=c("EV","AvrRxo1")) # compare groups 2 and 3
+topTags(etEVvsAvr, n=10)
+topTags(et0hrvsEV, n=10) 
+topTags(et0vsAvr, n=10)
+
+pval <- .01
+
+# 1 means upregulated -1 meands downregulated 0 is not significant
+dg0vsAvr <- decideTestsDGE(et0hrvsEV, adjust.method="BH", p.value=pval)
+dgEVvsAvr <- decideTestsDGE(etEVvsAvr, adjust.method="BH", p.value=pval)
+dg0vsEV <- decideTestsDGE(et0hrvsEV, adjust.method="BH", p.value=pval)
+
+
+par(mfrow=c(3, 1))
+# WHy is red dots withi blue in 0 vs Avr
+de1tags0vsAvr <- rownames(dgeDispersion)[as.logical(dg0vsAvr)] 
+plotSmear(et0vsAvr, de.tags=de1tags0vsAvr,xlab = "Average logCPM", main = "Special Gene vs Control")
+abline(h = c(-2, 2), col = "blue")
+de1tagsEVvsAvr <- rownames(dgeDispersion)[as.logical(dgEVvsAvr)] 
+plotSmear(etEVvsAvr, de.tags=de1tagsEVvsAvr,xlab = "Average logCPM", main = "Special Gene vs Empty Vector")
+abline(h = c(-2, 2), col = "blue")
+de1tags0vsEV <- rownames(dgeDispersion)[as.logical(dg0vsEV)] 
+plotSmear(et0hrvsEV, de.tags=de1tags0vsEV,xlab = "Average logCPM", main = "Empty Vector vs Control")
+abline(h = c(-2, 2), col = "blue")
+
+```
+
+
+### GLM Testing for Differential Expression
+```{r}
+
+fit <- glmFit(d2, design.mat)
+# compare (group 1 - group 2) to 0:
+# this is equivalent to comparing group 1 to group 2
+lrt0vsAvr <- glmLRT(fit, contrast=c(1,-1,0))
+lrt0vsEV <- glmLRT(fit, contrast=c(1,0,-1))
+lrtEVvsAvr <- glmLRT(fit, contrast=c(0,1,-1))
+topTags(lrt0vsAvr, n=10)
+topTags(lrt0vsEV, n=10)
+topTags(lrtEVvsAvr, n=10)
+
+
+
+# How would you know which gene is over or underexpresed#
+pval <- .01
+par(mfrow=c(1,3))
+de0vsAvr <- decideTestsDGE(lrt0vsAvr, adjust.method="BH", p.value = pval)
+de2tags0vsAvr <- rownames(d2)[as.logical(de0vsAvr)]
+plotSmear(lrt0vsAvr, de.tags=de2tags0vsAvr, main = "Special Gene vs Control",xlab = "Average logCPM")
+abline(h = c(-2, 2), col = "blue")
+
+de0vsEV <- decideTestsDGE(lrt0vsEV, adjust.method="BH", p.value = pval)
+de2tags0vsEV <- rownames(d2)[as.logical(de0vsEV)]
+plotSmear(lrt0vsEV, de.tags=de2tags0vsEV, main = "Empty Vector vs Control",xlab = "Average logCPM")
+abline(h = c(-2, 2), col = "blue")
+
+deEVvsAvr <- decideTestsDGE(lrtEVvsAvr, adjust.method="BH", p.value = pval)
+de2tagsEVvsAvr <- rownames(d2)[as.logical(deEVvsAvr)]
+plotSmear(lrtEVvsAvr, de.tags=de2tagsEVvsAvr, main = "Special Gene vs Empty Vector",xlab = "Average logCPM")
+abline(h = c(-2, 2), col = "blue")
+```
+
+
+### Heatmaps
+```{r}
+
+```
