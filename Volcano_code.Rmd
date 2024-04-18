@@ -9,52 +9,35 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r setup, include=FALSE}
+## Setup
+```{r}
 library(edgeR)
 library(limma)
 library(ggplot2)
 library(tidyverse) 
 library(RColorBrewer)
 library(ggrepel)
-# Put your own directory that you have you counts.txt file downloaded in 
-setwd("/Users/ian/Desktop/GItR_Capstone/CMDA_Capstone")
-```
-
-## Data Cleaning
-```{r}
 countData <-read.table(header = TRUE, sep = "", file = "counts.txt")
+
 colnames(countData) <- c("Geneid","Chr", "Start" ,"End", "Strand","Length","0hr1","0hr2","0hr3","Avr1","Avr2","Avr3", "EV1", "EV2","EV3")
 sampleInfo <- read.table(header = TRUE, sep = "", file = "counts.txt.summary")
 #countData$condition <- substr(rownames(sampleInfo), 1,nchar(rownames(sampleInfo))-1)
 groupNames <- c("0hr", "0hr","0hr","AvrRxo1", "AvrRxo1","AvrRxo1","EV","EV","EV")
+geneSymbols <- read.csv("geneSymbols.csv")
+geneTranslator <- read.table(header = TRUE, sep ="",file="Nbe.v1.1_vs_Nbe.v1.txt")
 
 dge <- DGEList(counts = countData[7:15],group = factor(groupNames))
-pseudoCounts <- log2(dge$counts+1)
 
-
-
-
-keep<-rowSums(cpm(dge$counts)>100) >= 2
-```
-
-
-### Real data analysis
-
-```{r}
-countData <-read.table(header = TRUE, sep = "", file = "counts.txt")
-colnames(countData) <- c("Geneid","Chr", "Start" ,"End", "Strand","Length","0hr1","0hr2","0hr3","Avr1","Avr2","Avr3", "EV1", "EV2","EV3")
-groupNames <- c("0hr", "0hr","0hr","AvrRxo1", "AvrRxo1","AvrRxo1","EV","EV","EV")
-dge <- DGEList(counts = countData[7:15],group = factor(groupNames))
-dge.full <- dge
-apply(dge$counts, 2, sum) 
 keep<-rowSums(cpm(dge$counts)>100) >= 2
 dge$counts <- dge$counts[keep, ]
-
-
 dge$samples$lib.size <- colSums(dge$counts)
+dge <- calcNormFactors(dge) 
 
 ```
 
+
+
+## Setup 2
 ```{r}
 dgeDispersion <- estimateCommonDisp(dge, verbose=T)
 
@@ -68,7 +51,9 @@ topTags(etEVvsAvr, n=10)
 topTags(et0hrvsEV, n=10)
 topTags(et0vsAvr, n=10)
 
-
+sigCount <- 20
+log2Fchange <- 1
+pval <- .01
 ```
 
 ## Volcano Plot for Hour Zero vs the Empty Vector
@@ -78,27 +63,41 @@ zev = as.data.frame(et0hrvsEV$table)
 zev$padj = -log10(zev$PValue)
 
 
-top0vsEV = data.frame(topTags(et0hrvsEV, n=20))
-
 
 zev$diffexpressed <- "NO"
   # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP"<br /><br /><br />
-zev$diffexpressed[zev$logFC > 0.6 & zev$PValue < 0.05] <- "UP"
+zev$diffexpressed[zev$logFC > log2Fchange & zev$PValue < pval] <- "UP"
   # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"<br /><br /><br />
-zev$diffexpressed[zev$logFC < -0.6 & zev$PValue < 0.05] <- "DOWN"
+zev$diffexpressed[zev$logFC < -log2Fchange & zev$PValue < pval] <- "DOWN"
   
+totolUp <- length(zev$diffexpressed[zev$logFC > log2Fchange & zev$PValue < pval])
+totolDown <- length(zev$diffexpressed[zev$logFC < -log2Fchange & zev$PValue < pval] )
 
 zev$index <- rownames(zev)
-zev$delabel <- ifelse(zev$index %in% head(zev[order(zev$PValue), "index"], 20), zev$index, NA) 
+topIndices <-head(zev[order(zev$PValue), "index"], sigCount)
+
+topGenes <- countData[topIndices, "Geneid"]
+topGeneListEVv0hr <- data.frame(row.names = NULL)
+for(i in topGenes){
+  geneName <- (geneTranslator[grep(i, geneTranslator$Nbe.v1.1.geneID), "Nbe.v1gene.ID"])
+  topGeneListEVv0hr <- rbind(topGeneListEVv0hr, geneSymbols[grep(geneName, geneSymbols$genes), ])
+}
+
+topGeneListEVv0hr$Significance <- seq(1,sigCount)
+zev$delabel <- ifelse(zev$index %in% topIndices,match(zev$index,topIndices), NA) 
+
+
 
 p1 = ggplot(data = zev, aes(x = logFC, y = -log10(PValue), col = diffexpressed, label = delabel)) +
-  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
-  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  geom_vline(xintercept = c(-log2Fchange, log2Fchange), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(pval), col = "gray", linetype = 'dashed') +
   geom_point(size = 1) +
+  
   scale_color_manual(values = c("blue", "grey", "red"), 
                      labels = c("Downregulated", "Not significant", "Upregulated")) +
-  geom_text_repel(max.overlaps = Inf) + ggtitle('Hour 0 compared to Empty Vector') 
+  geom_text_repel(max.overlaps = Inf) + ggtitle('Empty Vector vs. Hour 0') 
 
+tableEVv0hr <- knitr::kable(topGeneListEVv0hr, caption = "Empty Vector vs 0 Hour Significant genes")
 
 ```
 
@@ -109,26 +108,37 @@ zavr = as.data.frame(et0vsAvr$table)
 zavr$padj = -log10(zavr$PValue)
 
 
-top0vsEV = data.frame(topTags(et0hrvsEV, n=20))
-
 
 zavr$diffexpressed <- "NO"
   # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP"<br /><br /><br />
-zavr$diffexpressed[zavr$logFC > 0.6 & zavr$PValue < 0.05] <- "UP"
+zavr$diffexpressed[zavr$logFC > log2Fchange & zavr$PValue < pval] <- "UP"
   # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"<br /><br /><br />
-zavr$diffexpressed[zavr$logFC < -0.6 & zavr$PValue < 0.05] <- "DOWN"
+zavr$diffexpressed[zavr$logFC < -log2Fchange & zavr$PValue < pval] <- "DOWN"
   
 
 zavr$index <- rownames(zavr)
-zavr$delabel <- ifelse(zavr$index %in% head(zavr[order(zavr$PValue), "index"], 20), zavr$index, NA) 
+
+topIndices <-head(zavr[order(zavr$PValue), "index"], sigCount)
+
+topGenes <- countData[topIndices, "Geneid"]
+topGeneListAvrv0hr <- data.frame(row.names = NULL)
+for(i in topGenes){
+  geneName <- (geneTranslator[grep(i, geneTranslator$Nbe.v1.1.geneID), "Nbe.v1gene.ID"])
+  topGeneListAvrv0hr <- rbind(topGeneListAvrv0hr, geneSymbols[grep(geneName, geneSymbols$genes), ])
+}
+
+topGeneListAvrv0hr$Significance <- seq(1,sigCount)
+zavr$delabel <- ifelse(zavr$index %in% topIndices, match(zavr$index,topIndices), NA) 
 
 p2 = ggplot(data = zavr, aes(x = logFC, y = -log10(PValue), col = diffexpressed, label = delabel)) +
-  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
-  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  geom_vline(xintercept = c(-log2Fchange, log2Fchange), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(pval), col = "gray", linetype = 'dashed') +
   geom_point(size = 1) +
   scale_color_manual(values = c("blue", "grey", "red"), 
                      labels = c("Downregulated", "Not significant", "Upregulated")) +
-  geom_text_repel(max.overlaps = Inf) + ggtitle('Hour 0 vs. AvrRxo1 Expression') 
+  geom_text_repel(max.overlaps = Inf) + ggtitle('AvrRxo1 vs. Hour 0') 
+
+tableAvrv0hr <- knitr::kable(topGeneListAvrv0hr,caption = "Avr vs 0 Hour Significant genes")
 
 
 ```
@@ -140,36 +150,50 @@ evavr = as.data.frame(etEVvsAvr$table)
 evavr$padj = -log10(evavr$PValue)
 
 
-top0vsEV = data.frame(topTags(etEVvsAvr, n=20))
 
 
 evavr$diffexpressed <- "NO"
   # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP"<br /><br /><br />
-evavr$diffexpressed[evavr$logFC > 0.6 & evavr$PValue < 0.05] <- "UP"
+evavr$diffexpressed[evavr$logFC > log2Fchange & evavr$PValue < pval] <- "UP"
   # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"<br /><br /><br />
-evavr$diffexpressed[evavr$logFC < -0.6 & evavr$PValue < 0.05] <- "DOWN"
+evavr$diffexpressed[evavr$logFC < -log2Fchange & evavr$PValue < pval] <- "DOWN"
   
 
 evavr$index <- rownames(evavr)
-evavr$delabel <- ifelse(evavr$index %in% head(evavr[order(evavr$PValue), "index"], 20), evavr$index, NA) 
+
+topIndices <-head(zavr[order(evavr$PValue), "index"], sigCount)
+
+topGenes <- countData[topIndices, "Geneid"]
+topGeneListAvrvEV <- data.frame(row.names = NULL)
+for(i in topGenes){
+  geneName <- (geneTranslator[grep(i, geneTranslator$Nbe.v1.1.geneID), "Nbe.v1gene.ID"])
+  topGeneListAvrvEV <- rbind(topGeneListAvrvEV, geneSymbols[grep(geneName, geneSymbols$genes), ])
+}
+
+topGeneListAvrvEV$Significance <- seq(1,sigCount)
+evavr$delabel <- ifelse(evavr$index %in% topIndices, match(evavr$index,topIndices), NA) 
 
 p3 = ggplot(data = evavr, aes(x = logFC, y = -log10(PValue), col = diffexpressed, label = delabel)) +
-  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
-  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  geom_vline(xintercept = c(-log2Fchange, log2Fchange), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(pval), col = "gray", linetype = 'dashed') +
   geom_point(size = 1) +
   scale_color_manual(values = c("blue", "grey", "red"), 
                      labels = c("Downregulated", "Not significant", "Upregulated")) +
-  geom_text_repel(max.overlaps = Inf) + ggtitle('AvrRxo1 vs. Empty vector Expression') 
+  geom_text_repel(max.overlaps = Inf) + ggtitle('AvrRxo1 vs.Empty Vector') 
+
+tableAvrvEV <- knitr::kable(topGeneListAvrvEV, caption = "Avr vs Empty Vector Significant genes")
 
 
 ```
+
 ```{r}
 par(mfrow=c(1,3))
 p1
 p2
 p3
-
-
+tableEVv0hr
+tableAvrv0hr
+tableAvrvEV
 ```
 
 
