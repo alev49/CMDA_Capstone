@@ -27,12 +27,10 @@ geneSymbols <- read.csv("geneSymbols.csv")
 geneTranslator <- read.table(header = TRUE, sep ="",file="Nbe.v1.1_vs_Nbe.v1.txt")
 
 dge <- DGEList(counts = countData[7:15],group = factor(groupNames))
-
 keep<-rowSums(cpm(dge$counts)>100) >= 2
 dge$counts <- dge$counts[keep, ]
 dge$samples$lib.size <- colSums(dge$counts)
 dge <- calcNormFactors(dge) 
-
 ```
 
 
@@ -54,6 +52,11 @@ topTags(et0vsAvr, n=10)
 sigCount <- 20
 log2Fchange <- 1
 pval <- .01
+newMat <- data.frame(Zerohr1=double(),Zerohr2=double(),Zerohr3=double(),Avr1=double(),Avr2=double(),Avr3=double(), EV1=double(), EV2=double(),EV3=double())
+for(i in seq(1,3098)){
+  newMat[nrow(newMat) + 1,] <- (dge$counts[i,]-mean(dge$counts[i,]))/sd(dge$counts[i,])
+}
+
 ```
 
 ## Volcano Plot for Hour Zero vs the Empty Vector
