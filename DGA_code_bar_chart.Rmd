@@ -11,6 +11,13 @@ library(limma)
 library(ggplot2)
 library(tidyr)
 library(reshape2)
+install.packages("ComplexHeatmap")
+install.packages("circlize")
+BiocManager::install("ComplexHeatmap", force = TRUE)
+install.packages('modeltools')
+library(ComplexHeatmap)
+library(ComplexHeatmap)
+library(circlize)
 # Put your own directory that you have you counts.txt file downloaded in 
 #setwd("/Users/alexvidal/Desktop/Spring2024Classes/CMDA_Capstone/R_Code/")
 setwd("/Users/yelebedesta/CMDA_capstone")
@@ -39,7 +46,9 @@ hist(pseudoCounts[, "EV2"])
 hist(pseudoCounts[, "EV3"])
 boxplot(pseudoCounts, col="gray")
 
+sort(pseudoCounts[, "Avr1"], decreasing = T)
 
+?sort
 
 dge$counts
 #here, we are keeping the genes if it has a count of 100 for at least 2 samples
@@ -59,7 +68,7 @@ dge.full <- dge #dimension 84570     9
 # this is the sample size before the cpm - dimension of dge is 84570 x 9
 before_cpm_cut <- dge.full$samples$lib.size
 apply(dge$counts, 2, sum) 
-keep<-rowSums(cpm(dge$counts)>100) >= 2
+keep<-rowSums(cpm(dge$counts)>10) >= 2
 dge$counts <- dge$counts[keep, ]
 dim(dge$counts) # 3098    9
 dge$samples$lib.size <- colSums(dge$counts)
@@ -95,14 +104,24 @@ ggplot(data_long, aes(x = Samples, y = value, fill = variable)) +
 ```{r}
 # Why is Avr1 so far from Avr2 and 3
 dge <- calcNormFactors(dge)
-plotMDS(dge, method = "bcv", col=as.numeric(dge$samples$group), top = 1000)
+plotMDS(dge, method = "bcv", col=as.numeric(dge$samples$group), top = 1000, xlab = "Principle Component 1", ylab = "Principle Component 2 ")
+?plotPCA
+plotPCA(
+  dge
+)
 legend("bottomright", as.character(unique(dge$samples$group)), col=1:3, pch=20)
 
-?plotMDS
+dge$samples$group
 
 #Try PCA
-princomp(dge)
-predict(dge,princomp(dge))
+
+dc <- prcomp(dge[,c(1:length(dge))]
+scores <- dc$scores
+autoplot(dc, data = dge, colour = 'blue')
+
+plot(scores[, 1], scores[, 2], 
+     xlab = "Principal Component 1", ylab = "Principal Component 2",
+     main = "PCA Plot")
 ```
 
 
@@ -115,6 +134,77 @@ names(dgeDispersion$span)
 
 plotBCV(dgeDispersion)
 ```
+
+```{r}
+install.packages("factoextra")
+library(factoextra)
+library(stringr)
+install.packages("gtable")
+library(gtable)
+update.packages(ask = FALSE, checkBuilt = TRUE)
+dge_cpm <- cpm(dge, log = TRUE)
+res.pca <- prcomp(t(dge_cpm))
+colors <- as.factor(str_split(rownames(dge$samples), "_", simplify = TRUE)[,1])
+fviz_pca_ind(res.pca,
+             col.ind = colors,
+             palette = "Set1",
+             repel = TRUE,    # Avoid text overlapping
+             title = "PCA plot of the 3 samples"
+             )
+
+fviz_eig(res.pca, addlabels = TRUE)
+
+fviz_contrib(res.pca, choice = "var", axes = 1, top = 100)
+plotMDS(dge)
+
+most_var_genes <- sort(apply(dge_cpm, 1, var), decreasing=TRUE)[1:200]
+mydgelist_cpm_most_var <- dge_cpm[most_var_genes,] 
+library(pheatmap)
+pheatmap(mydgelist_cpm_most_var, show_rownames  = FALSE) 
+
+
+my_z_score <- function(x){
+  return( (x - mean(x)) / sd(x))
+}
+
+mydgelist_cpm_most_var2 <-  t(apply(mydgelist_cpm_most_var, 1, my_z_score))
+pheatmap(mydgelist_cpm_most_var2, show_rownames  = FALSE)
+
+mydgelist <- calcNormFactors(dge)
+mydgelist$samples$norm.factors
+
+data <- data.frame(
+  replicate = rep(1:3, each = 3),  # 3 replicates
+  "Zerohr" = c(1, 1, 1, 0, 0, 0, 0, 0, 0),  # Values for "0hr" column
+  "Avr" = c(0, 0, 0, 1, 1, 1, 0, 0, 0),  # Values for "Avr" column
+  "EV" = c(0, 0, 0, 0, 0, 0, 1, 1, 1)  # Values for "EV" column
+)
+
+
+model_matrix <- model.matrix(~ 0 + Zerohr+ Avr + EV, data = data)
+design <- model_matrix
+design
+
+mydgelist_voomed <- voom(mydgelist,design,plot = TRUE)
+
+mydgelist_fit <- lmFit(mydgelist_voomed)
+contrast_matrix <- makeContrasts(Zerohr_vs_Avr = Avr - Zerohr,
+                             Zerohr_vs_EV= EV - Zerohr,
+                             Avr_vs_EV = EV - Avr,
+                             levels=design)
+contrast_matrix
+
+mydgelist_fit_contrasts <- contrasts.fit(mydgelist_fit, contrast_matrix)
+mydgelist_fit_contrasts<- eBayes(mydgelist_fit_contrasts)
+mydgelist_de <- decideTests(mydgelist_fit_contrasts)
+summary(mydgelist_de)
+
+vennDiagram(mydgelist_de,
+            include=c("up", "down"),
+            counts.col=c("red", "blue"),
+            circle.col = c("red", "blue", "green3", "orange"))
+```
+
 
 ## GLM Estimates of Dispersion
 ```{r}
@@ -133,10 +223,11 @@ plotBCV(d2)
 under construction
 ```{r}
 ## Install DESeq by doing BiocManager::install("DESeq")
-# library(DESeq2)
-# cds <- DESeqDataSetFromMatrix( countData = countData)
-# cds <- estimateSizeFactors( cds )
-# sizeFactors( cds )
+library(DESeq2)
+?DESeqDataSetFromMatrix
+cds <- DESeqDataSetFromMatrix(countData = countData)
+cds <- estimateSizeFactors(cds)
+sizeFactors(cds)
 ```
 
 
@@ -209,5 +300,140 @@ abline(h = c(-2, 2), col = "blue")
 
 ### Heatmaps
 ```{r}
+geneSymbol <-read.csv("/Users/yelebedesta/Documents/GitHub/CMDA_Capstone/geneSymbols.csv")
+View(geneSymbol)
+
+countData[na.omit()]
+
+zev = as.data.frame(et0hrvsEV$table)
+zev$padj = -log10(zev$PValue)
 
 ```
+
+
+```{r}
+library(tidyverse) 
+library(RColorBrewer)
+library(ggrepel)
+zev = as.data.frame(et0hrvsEV$table)
+
+zev$padj = -log10(zev$PValue)
+
+
+top0vsEV = data.frame(topTags(et0hrvsEV, n=20))
+
+
+zev$diffexpressed <- "NO"
+  # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP"<br /><br /><br />
+zev$diffexpressed[zev$logFC > 0.6 & zev$PValue < 0.05] <- "UP"
+  # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"<br /><br /><br />
+zev$diffexpressed[zev$logFC < -0.6 & zev$PValue < 0.05] <- "DOWN"
+  
+
+zev$index <- rownames(zev)
+zev$delabel <- ifelse(zev$index %in% head(zev[order(zev$PValue), "index"], 20), zev$index, NA) 
+
+p1 = ggplot(data = zev, aes(x = logFC, y = -log10(PValue), col = diffexpressed, label = delabel)) +
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  geom_point(size = 1) +
+  scale_color_manual(values = c("blue", "grey", "red"), 
+                     labels = c("Downregulated", "Not significant", "Upregulated")) +
+  geom_text_repel(max.overlaps = Inf) + ggtitle('Hour 0 compared to Empty Vector') 
+
+p1
+```
+
+```{r}
+zavr = as.data.frame(et0vsAvr$table)
+
+zavr$padj = -log10(zavr$PValue)
+
+
+top0vsEV = data.frame(topTags(et0hrvsEV, n=20))
+
+
+zavr$diffexpressed <- "NO"
+  # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP"<br /><br /><br />
+zavr$diffexpressed[zavr$logFC > 0.6 & zavr$PValue < 0.05] <- "UP"
+  # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"<br /><br /><br />
+zavr$diffexpressed[zavr$logFC < -0.6 & zavr$PValue < 0.05] <- "DOWN"
+  
+
+zavr$index <- rownames(zavr)
+zavr$delabel <- ifelse(zavr$index %in% head(zavr[order(zavr$PValue), "index"], 20), zavr$index, NA) 
+
+p2 = ggplot(data = zavr, aes(x = logFC, y = -log10(PValue), col = diffexpressed, label = delabel)) +
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  geom_point(size = 1) +
+  scale_color_manual(values = c("blue", "grey", "red"), 
+                     labels = c("Downregulated", "Not significant", "Upregulated")) +
+  geom_text_repel(max.overlaps = Inf) + ggtitle('Hour 0 vs. AvrRxo1 Expression') 
+
+p2
+```
+
+```{r}
+evavr = as.data.frame(etEVvsAvr$table)
+
+evavr$padj = -log10(evavr$PValue)
+
+
+top0vsEV = data.frame(topTags(etEVvsAvr, n=20))
+
+
+evavr$diffexpressed <- "NO"
+  # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP"<br /><br /><br />
+evavr$diffexpressed[evavr$logFC > 0.6 & evavr$PValue < 0.05] <- "UP"
+  # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"<br /><br /><br />
+evavr$diffexpressed[evavr$logFC < -0.6 & evavr$PValue < 0.05] <- "DOWN"
+  
+
+evavr$index <- rownames(evavr)
+evavr$delabel <- ifelse(evavr$index %in% head(evavr[order(evavr$PValue), "index"], 20), evavr$index, NA) 
+
+p3 = ggplot(data = evavr, aes(x = logFC, y = -log10(PValue), col = diffexpressed, label = delabel)) +
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  geom_point(size = 1) +
+  scale_color_manual(values = c("blue", "grey", "red"), 
+                     labels = c("Downregulated", "Not significant", "Upregulated")) +
+  geom_text_repel(max.overlaps = Inf) + ggtitle('AvrRxo1 vs. Empty vector Expression') 
+
+p3
+```
+
+```{r}
+evavr = as.data.frame(etEVvsAvr$table)
+
+evavr$padj = -log10(evavr$PValue)
+
+
+top0vsEV = data.frame(topTags(etEVvsAvr, n=20))
+
+top0vsEV_copy <- top0vsEV
+install.packages("pheatmap")
+library(pheatmap)
+rownames(top0vsEV_copy) <- rownames(top0vsEV_copy)
+colnames(top0vsEV_copy) <- c("Control", "Empty vector")
+
+# Create heatmap
+pheatmap(top0vsEV_copy, 
+          scale = "row",    # Scale rows
+          clustering_method = "complete",    # Choose clustering method
+          color = colorRampPalette(c("blue", "white", "red"))(100),    # Define colors
+          main = "Gene Expression Heatmap",    # Set heatmap title
+          fontsize = 8,    # Set font size
+          cellwidth = 15,    # Set cell width
+          cellheight = 15    # Set cell height
+ )
+```
+
+
+
+
+
+
+
+
